@@ -1,0 +1,16 @@
+{
+  "name": "Dual LLM 교차검증",
+  "short_name": "교차검증",
+  "description": "Gemini 해결 → Claude 검증 교차검증 워크벤치",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1720",
+  "theme_color": "#1f3a5f",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

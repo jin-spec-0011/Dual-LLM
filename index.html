@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="교차검증">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Dual LLM 교차검증</title>
+<style>
+:root{
+  --bg:#f4f6f9; --panel:#ffffff; --ink:#18212b; --muted:#5d6b7a; --line:#d8dee6;
+  --accent:#2563eb; --gem:#2f6fdb; --cla:#c8682b; --ok:#15803d; --warn:#b45309; --bad:#b91c1c;
+  --chip:#eef2f7; --code:#f1f4f8; --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f1720; --panel:#17212c; --ink:#e6edf3; --muted:#9aa8b6; --line:#2a3644;
+    --accent:#5b8def; --gem:#6a9cf0; --cla:#e89060; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+    --chip:#223040; --code:#1d2835; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:12px;padding:10px 16px;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:700}
+nav{display:flex;gap:4px;margin-left:auto}
+nav button{border:0;background:transparent;color:var(--muted);padding:8px 12px;border-radius:8px;font-weight:600;cursor:pointer}
+nav button.on{background:var(--chip);color:var(--ink)}
+#syncBadge{font-size:12px;color:var(--muted)}
+main{max-width:1500px;margin:0 auto;padding:16px}
+.view{display:none}.view.on{display:block}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:16px}
+.workspace{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:1024px){ .workspace{grid-template-columns:380px 1fr;align-items:start}
+  .workspace>.panel:first-child{position:sticky;top:70px;max-height:calc(100vh - 90px);overflow:auto} }
+label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:12px 0 4px}
+input[type=text],input[type=password],input[type=email],input[type=number],select,textarea{
+  width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:90px;resize:vertical}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row>*{flex:1 1 140px}
+.btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 14px;border-radius:8px;font-weight:600;cursor:pointer;font:inherit;font-weight:600}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.danger{color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.sm{padding:5px 10px;font-size:13px}
+.switch{display:flex;align-items:center;gap:8px;font-size:14px;margin-top:10px}
+.mode{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--chip)}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.thumbs div{position:relative}
+.thumbs img{width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+.thumbs button{position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:20px;height:20px;background:var(--bad);color:#fff;cursor:pointer;font-size:12px;line-height:20px;padding:0}
+.status{padding:10px 14px;border-radius:8px;font-weight:700;margin-bottom:12px;background:var(--chip)}
+.status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.bad{color:var(--bad)}
+.round{border:1px solid var(--line);border-radius:var(--radius);margin-bottom:14px;overflow:hidden}
+.round>h3{margin:0;padding:8px 14px;font-size:14px;background:var(--chip);display:flex;gap:8px;align-items:center}
+.pair{display:grid;grid-template-columns:1fr}
+@media (min-width:1024px){ .pair{grid-template-columns:1fr 1fr} .pair>.out+.out{border-left:1px solid var(--line)} }
+.out{padding:12px 14px;min-width:0}
+.out .who{font-size:12px;font-weight:700;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.who.g{color:var(--gem)} .who.c{color:var(--cla)}
+.md{overflow-wrap:anywhere}
+.md h1,.md h2,.md h3,.md h4{font-size:15px;margin:14px 0 6px}
+.md p{margin:6px 0}
+.md ul,.md ol{margin:6px 0;padding-left:22px}
+.md code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:13px}
+.md pre{background:var(--code);padding:10px;border-radius:8px;overflow:auto;font-size:13px}
+.md pre code{background:none;padding:0}
+.md .tbl{overflow-x:auto}
+.md table{border-collapse:collapse;font-size:13px;margin:8px 0;min-width:100%}
+.md th,.md td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}
+.md th{background:var(--chip)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.err{color:var(--bad);font-size:13px;white-space:pre-wrap}
+.muted{color:var(--muted);font-size:13px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--chip);border-radius:8px;padding:10px}
+.kpi b{display:block;font-size:20px}
+.list .item{display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.list .item:hover{background:var(--chip)}
+.list .item .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--chip);white-space:nowrap}
+.pill.ok{color:var(--ok)} .pill.warn{color:var(--warn)} .pill.bad{color:var(--bad)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#111;color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50;max-width:90vw}
+.toast.on{opacity:.92}
+details summary{cursor:pointer;font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1>Dual LLM 교차검증</h1>
+  <span id="syncBadge">로컬 저장</span>
+  <nav>
+    <button data-view="work" class="on">작업</button>
+    <button data-view="history">기록</button>
+    <button data-view="settings">설정</button>
+  </nav>
+</header>
+
+<main>
+<!-- ============ 작업 ============ -->
+<section id="view-work" class="view on">
+  <div class="workspace">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <strong id="recLabel">새 작업</strong>
+        <button class="btn sm" id="btnNew" style="flex:0 0 auto">+ 새 작업</button>
+      </div>
+      <label for="fTitle">제목</label>
+      <input type="text" id="fTitle" placeholder="예: 3호기 슬롯다이 막두께 편차">
+      <label for="fType">업무 유형</label>
+      <select id="fType"></select>
+      <div class="switch">
+        <input type="checkbox" id="fSwap">
+        <label for="fSwap" style="margin:0;color:var(--ink)">역할 전환 (Claude 해결 → Gemini 검증)</label>
+      </div>
+      <div class="muted" id="modeHint" style="margin-top:4px"></div>
+      <div class="switch">
+        <input type="checkbox" id="fSearch">
+        <label for="fSearch" style="margin:0;color:var(--ink)">Gemini Google 검색 연동</label>
+      </div>
+      <label for="fProblem">문제 (증상 / 목표)</label>
+      <textarea id="fProblem" placeholder="1~2문장으로 핵심만"></textarea>
+      <label for="fCond">조건 · 스펙 · 제약</label>
+      <textarea id="fCond" placeholder="설비, 환경, 허용 오차, 제약 조건"></textarea>
+      <label for="fData">자료 (로그 · 데이터 붙여넣기)</label>
+      <textarea id="fData" placeholder="알람 로그, 측정값 CSV 등"></textarea>
+      <label for="fImg">사진 첨부 (최대 5장, 자동 축소, 기록에는 미저장)</label>
+      <input type="file" id="fImg" accept="image/*" multiple>
+      <div class="thumbs" id="thumbs"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="btnRun">실행</button>
+        <button class="btn danger" id="btnStop" disabled>중지</button>
+      </div>
+      <div class="muted" id="costHint" style="margin-top:8px"></div>
+    </div>
+
+    <div>
+      <div id="statusBox" class="status" style="display:none"></div>
+      <div id="rounds"></div>
+      <div class="panel" id="postBox" style="display:none">
+        <strong>사후 평가 (KPI 기록)</strong>
+        <div class="switch"><input type="checkbox" id="pFalsePos"><label for="pFalsePos" style="margin:0;color:var(--ink)">검증 지적 중 오탐(실제 문제 아님)이 있었음</label></div>
+        <div class="switch"><input type="checkbox" id="pRework"><label for="pRework" style="margin:0;color:var(--ink)">현장 반영 후 재작업 발생</label></div>
+        <label for="pHuman">사람 판단 / 메모</label>
+        <textarea id="pHuman" placeholder="최종 결정, 현장 결과, 특이사항"></textarea>
+        <div class="row" style="margin-top:10px">
+          <button class="btn" id="btnSavePost">평가 저장</button>
+          <button class="btn" id="btnCopyAll">전체 결과 복사</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 기록 ============ -->
+<section id="view-history" class="view">
+  <div class="panel">
+    <div class="kpis" id="kpis"></div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="hSearch" placeholder="제목·문제 검색">
+      <select id="hFilter"><option value="">전체 유형</option></select>
+      <button class="btn" id="btnCsv" style="flex:0 0 auto">CSV 내보내기</button>
+    </div>
+    <div class="list" id="hList"></div>
+  </div>
+</section>
+
+<!-- ============ 설정 ============ -->
+<section id="view-settings" class="view">
+  <div class="panel">
+    <strong>API 키 (이 기기에만 저장, 동기화되지 않음)</strong>
+    <label for="sGemKey">Gemini API 키 (Google AI Studio)</label>
+    <input type="password" id="sGemKey" autocomplete="off" placeholder="AIza...">
+    <label for="sClaKey">Claude API 키 (Anthropic Console)</label>
+    <input type="password" id="sClaKey" autocomplete="off" placeholder="sk-ant-...">
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="btnTestKeys">키 연결 테스트</button>
+    </div>
+    <div class="muted" id="keyTest"></div>
+  </div>
+
+  <div class="panel">
+    <strong>모델 · 루프</strong>
+    <div class="row">
+      <div><label for="sGemModel">Gemini 모델 ID</label><input type="text" id="sGemModel" list="gemModels"></div>
+      <div><label for="sClaModel">Claude 모델 ID</label><input type="text" id="sClaModel" list="claModels"></div>
+    </div>
+    <datalist id="gemModels"><option value="gemini-4-argon"><option value="gemini-3.8-flash"></datalist>
+    <datalist id="claModels"><option value="claude-opus-5-5"><option value="claude-sonnet-5-5"></datalist>
+    <div class="row">
+      <div><label for="sRounds">최대 해결→검증 라운드</label><input type="number" id="sRounds" min="1" max="4"></div>
+      <div><label for="sMaxTok">응답 최대 토큰</label><input type="number" id="sMaxTok" min="1024" max="64000" step="1024"></div>
+      <div><label for="sTimeout">호출 제한시간(초)</label><input type="number" id="sTimeout" min="30" max="900"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <strong>비용 관리 (USD / 100만 토큰)</strong>
+    <div class="row">
+      <div><label for="pGemIn">Gemini 입력</label><input type="number" id="pGemIn" step="0.01" min="0"></div>
+      <div><label for="pGemOut">Gemini 출력</label><input type="number" id="pGemOut" step="0.01" min="0"></div>
+      <div><label for="pClaIn">Claude 입력</label><input type="number" id="pClaIn" step="0.01" min="0"></div>
+      <div><label for="pClaOut">Claude 출력</label><input type="number" id="pClaOut" step="0.01" min="0"></div>
+    </div>
+    <div class="row">
+      <div><label for="sBudget">월 예산 (USD, 초과 시 실행 전 확인)</label><input type="number" id="sBudget" step="1" min="0"></div>
+    </div>
+    <div class="muted">기본값: gemini-4-argon $2/$10 (도입가, 2026-11-30까지) → 12-01부터 $4/$20, claude-opus-5-5 $4/$20. 모델을 바꾸면 단가도 직접 수정하십시오.</div>
+  </div>
+
+  <div class="panel">
+    <strong>PC ↔ 폰 기록 동기화 (Firebase Realtime Database, 선택)</strong>
+    <label for="sFbCfg">firebaseConfig (JSON)</label>
+    <textarea id="sFbCfg" placeholder='{"apiKey":"...","authDomain":"...","databaseURL":"https://...firebaseio.com","projectId":"...","appId":"..."}'></textarea>
+    <div class="row">
+      <div><label for="sFbEmail">이메일</label><input type="email" id="sFbEmail" autocomplete="username"></div>
+      <div><label for="sFbPw">비밀번호</label><input type="password" id="sFbPw" autocomplete="current-password"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" id="btnFbLogin">로그인</button>
+      <button class="btn" id="btnFbSignup">계정 생성</button>
+      <button class="btn" id="btnFbLogout">로그아웃</button>
+    </div>
+    <div class="muted" id="fbStatus" style="margin-top:6px">미설정</div>
+  </div>
+
+  <div class="row">
+    <button class="btn primary" id="btnSaveSettings">설정 저장</button>
+    <button class="btn" id="btnExportJson">기록 JSON 백업</button>
+    <label class="btn" style="margin:0;text-align:center;color:var(--ink)">JSON 복원<input type="file" id="fImport" accept="application/json" style="display:none"></label>
+  </div>
+</section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+/* =========================================================
+ * Dual LLM 교차검증 PWA  v1.0.0
+ * Gemini 해결 → Claude 검증 (역할 전환 가능), 반려 시 재수정 루프
+ * ========================================================= */
+const APP_VER = '1.0.0';
+const LS_SETTINGS = 'dllm.settings.v1';
+const LS_RECORDS = 'dllm.records.v1';
+const FB_SDK = 'https://www.gstatic.com/firebasejs/10.12.2/';
+const RETRY_STATUS = [408, 429, 500, 502, 503, 504, 529];
+
+/* ---------- 업무 유형 (계획서 역할 매트릭스) ---------- */
+const TASK_TYPES = [
+  { id:'equip', name:'설비 트러블슈팅', solver:'gemini', search:false,
+    check:'증상→원인 인과(5-Why/Fishbone)가 끊긴 곳, 누락된 물리적 점검 항목, 점검 순서의 타당성, 안전(LOTO·약액·고전압) 절차 누락, 재발 방지책 유무' },
+  { id:'process', name:'공정 데이터 분석', solver:'gemini', search:false,
+    check:'모든 수치 직접 재계산(평균·표준편차·Cp/Cpk·관리한계), 관리한계 산식과 군 크기, 이상치 처리 기준, 단위·유효숫자, 상관과 인과 혼동' },
+  { id:'research', name:'최신 정보 리서치', solver:'gemini', search:true,
+    check:'출처 실재 여부와 날짜, 출처 간 상충, 오래된 정보, 출처 없는 단정, 제조사 주장과 독립 검증 구분' },
+  { id:'macro', name:'매크로·자산 분석', solver:'gemini', search:true,
+    check:'MDD 30% 이내 방어 가능성, 가정 오류, 데이터 시점, 과신·확증편향, 시나리오별 손실 추정 누락' },
+  { id:'code', name:'코드 (PWA·Firebase·GitHub Actions)', solver:'claude', search:false,
+    check:'Firebase 보안 규칙, 키·시크릿 노출, GitHub Actions permissions·secrets 참조·yaml 문법, 예외 처리, 모바일/PWA 호환, 생략된 코드' },
+  { id:'doc', name:'보고서·계획서·문서', solver:'claude', search:true,
+    check:'수치·사실의 최신성(검색으로 교차 확인), 근거 없는 주장, 논리 비약, 결론-근거 불일치, 누락된 리스크' }
+];
+
+/* ---------- 프롬프트 ---------- */
+const SOLVER_SYS = `당신은 반도체/태양광 습식 코팅 공정·양산 설비 및 소프트웨어 자동화 분야의 문제 해결 엔지니어입니다.
+- 한국어 존댓말로 답합니다. 서론 없이 첫 줄에 결론과 핵심 수치를 제시합니다.
+- 감정적 표현 없이 스펙·수치·인과관계 중심으로 작성합니다.
+- 코드가 필요하면 생략 없는 완전한 코드를 제공합니다.
+반드시 아래 형식을 지킵니다.
+## 결론
+## 해결안
+## 대안
+## 가정 (번호 목록)
+## 근거·수치·출처 (표)
+## 확신도: 상/중/하 — 이유`;
+
+const REVIEWER_SYS = `당신은 독립 검증자입니다. 해결안의 작성자가 아니며, 반대 입장에서 결함을 찾는 것이 임무입니다.
+- 문장 다듬기가 아니라 논리·수치·누락·안전·실행 가능성을 검증합니다.
+- 수치는 직접 재계산하고 차이를 명시합니다. 자료가 부족해 판단할 수 없는 것은 추측하지 말고 '검증 불가'로 분류합니다.
+- 판정 규칙: 치명 결함 1개 이상 → 반려 / 주요 결함만 있음 → 조건부 통과 / 경미 또는 없음 → 통과.
+출력 형식을 반드시 지킵니다. 첫 줄은 정확히 다음 중 하나입니다.
+판정: 통과
+판정: 조건부 통과
+판정: 반려
+그 다음:
+## 결함 표
+| 항목 | 심각도(치명/주요/경미) | 근거 | 수정안 |
+## 검증 불가 항목
+## 재계산 결과`;
+
+function buildSolvePrompt(rec, prev){
+  const base = `[원문제]\n${rec.problem}\n\n[조건]\n${rec.conditions || '(없음)'}\n\n[자료]\n${rec.data || '(없음)'}${rec.imageCount ? `\n\n[첨부 사진] ${rec.imageCount}장` : ''}`;
+  if (!prev) {
+    return `${base}\n\n[요청]\n1. 해결안 1개와 대안 1개\n2. 각 해결안의 가정을 번호로 나열\n3. 사용한 수치·출처를 표로 제시\n4. 확신도(상/중/하)와 그 이유`;
+  }
+  return `${base}\n\n[이전 해결안]\n${prev.solution}\n\n[검증자 지적사항]\n${prev.review}\n\n[요청]\n검증자 지적사항을 항목별로 반영해 해결안을 전면 수정하십시오. 반영하지 않은 항목은 이유를 밝히십시오. 형식은 동일하게 유지하고, 맨 아래에 '## 반영 내역' 표(지적 항목 | 조치 | 비고)를 추가하십시오.`;
+}
+function buildReviewPrompt(rec, solution, type){
+  return `[원문제]\n${rec.problem}\n\n[조건]\n${rec.conditions || '(없음)'}\n\n[자료]\n${rec.data || '(없음)'}${rec.imageCount ? `\n\n[첨부 사진] ${rec.imageCount}장 (동일 사진 첨부됨)` : ''}\n\n[검증 대상 해결안]\n${solution}\n\n[이 업무 유형의 중점 검증 항목]\n${type.check}`;
+}
+
+/* ---------- 상태 ---------- */
+const DEFAULTS = {
+  gemKey:'', claKey:'',
+  gemModel:'gemini-4-argon', claModel:'claude-opus-5-5',
+  rounds:2, maxTok:8192, timeout:300,
+  pGemIn: Date.now() < Date.parse('2026-12-01T00:00:00+09:00') ? 2 : 4,
+  pGemOut: Date.now() < Date.parse('2026-12-01T00:00:00+09:00') ? 10 : 20,
+  pClaIn:4, pClaOut:20, budget:30,
+  fbCfg:'', fbEmail:''
+};
+let S = loadSettings();
+let records = loadRecords();
+let cur = null;            // 현재 작업 레코드
+let images = [];           // [{mime, data(base64), url}]  메모리 전용
+let abortCtl = null;
+let running = false;
+
+/* ---------- 유틸 ---------- */
+const $ = (id) => document.getElementById(id);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const nowISO = () => new Date().toISOString();
+function toast(msg, ms = 2400){ const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), ms); }
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function safeJSON(s, fb){ try { return JSON.parse(s); } catch { return fb; } }
+function loadSettings(){ return { ...DEFAULTS, ...(safeJSON(localStorage.getItem(LS_SETTINGS), {}) || {}) }; }
+function saveSettingsLS(){ try { localStorage.setItem(LS_SETTINGS, JSON.stringify(S)); } catch (e) { toast('설정 저장 실패: ' + e.message); } }
+function loadRecords(){ const r = safeJSON(localStorage.getItem(LS_RECORDS), []); return Array.isArray(r) ? r : []; }
+function persistRecords(){
+  try { localStorage.setItem(LS_RECORDS, JSON.stringify(records)); }
+  catch (e) { toast('기기 저장 공간 부족: 오래된 기록을 JSON 백업 후 삭제하십시오.', 5000); }
+}
+function typeOf(id){ return TASK_TYPES.find(t => t.id === id) || TASK_TYPES[0]; }
+function fmtDate(iso){ const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('ko-KR', { year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }); }
+function money(v){ return '$' + (Math.round(v * 10000) / 10000).toFixed(4); }
+
+/* ---------- 마크다운 (안전한 경량 렌더러) ---------- */
+function inline(s){
+  s = esc(s);
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return s;
+}
+function md(src){
+  const lines = String(src || '').replace(/\r\n?/g, '\n').split('\n');
+  let html = '', i = 0;
+  const isTableSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+  const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+  while (i < lines.length) {
+    const l = lines[i];
+    if (/^```/.test(l)) {
+      const buf = []; i++;
+      while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++; }
+      i++; html += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue;
+    }
+    if (/^\s*\|/.test(l) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const head = cells(l); i += 2;
+      let t = '<div class="tbl"><table><thead><tr>' + head.map(h => `<th>${inline(h)}</th>`).join('') + '</tr></thead><tbody>';
+      while (i < lines.length && /^\s*\|/.test(lines[i])) { t += '<tr>' + cells(lines[i]).map(c => `<td>${inline(c)}</td>`).join('') + '</tr>'; i++; }
+      html += t + '</tbody></table></div>'; continue;
+    }
+    const h = l.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { const n = Math.min(4, h[1].length + 1); html += `<h${n}>${inline(h[2])}</h${n}>`; i++; continue; }
+    if (/^\s*[-*]\s+/.test(l)) {
+      html += '<ul>';
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { html += `<li>${inline(lines[i].replace(/^\s*[-*]\s+/, ''))}</li>`; i++; }
+      html += '</ul>'; continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(l)) {
+      html += '<ol>';
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { html += `<li>${inline(lines[i].replace(/^\s*\d+[.)]\s+/, ''))}</li>`; i++; }
+      html += '</ol>'; continue;
+    }
+    if (!l.trim()) { i++; continue; }
+    const buf = [];
+    while (i < lines.length && lines[i].trim() && !/^(```|#{1,6}\s|\s*[-*]\s|\s*\d+[.)]\s|\s*\|)/.test(lines[i])) { buf.push(inline(lines[i])); i++; }
+    if (buf.length) html += `<p>${buf.join('<br>')}</p>`; else { html += `<p>${inline(l)}</p>`; i++; }
+  }
+  return html;
+}
+
+/* ---------- 네트워크 ---------- */
+async function fetchJSON(url, opts, label){
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (abortCtl?.signal.aborted) throw new Error('사용자가 중지했습니다.');
+    const timeoutCtl = new AbortController();
+    const timer = setTimeout(() => timeoutCtl.abort(), S.timeout * 1000);
+    const onAbort = () => timeoutCtl.abort();
+    abortCtl?.signal.addEventListener('abort', onAbort, { once:true });
+    try {
+      const res = await fetch(url, { ...opts, signal: timeoutCtl.signal });
+      const text = await res.text();
+      const json = safeJSON(text, null);
+      if (res.ok && json) return json;
+      const msg = json?.error?.message || text.slice(0, 300) || res.statusText;
+      lastErr = new Error(`${label} HTTP ${res.status}: ${msg}`);
+      if (!RETRY_STATUS.includes(res.status)) throw lastErr;
+    } catch (e) {
+      if (abortCtl?.signal.aborted) throw new Error('사용자가 중지했습니다.');
+      if (e.name === 'AbortError') lastErr = new Error(`${label} 응답 시간 초과 (${S.timeout}초)`);
+      else if (e === lastErr) throw e;
+      else lastErr = new Error(`${label} 네트워크 오류: ${e.message}`);
+    } finally {
+      clearTimeout(timer);
+      abortCtl?.signal.removeEventListener('abort', onAbort);
+    }
+    await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+  }
+  throw lastErr;
+}
+
+async function callGemini(system, prompt, imgs, useSearch){
+  if (!S.gemKey) throw new Error('Gemini API 키가 없습니다. 설정에서 입력하십시오.');
+  const parts = [{ text: prompt }, ...imgs.map(m => ({ inline_data: { mime_type: m.mime, data: m.data } }))];
+  const body = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role:'user', parts }],
+    generationConfig: { maxOutputTokens: Number(S.maxTok) || 8192 }
+  };
+  if (useSearch) body.tools = [{ google_search: {} }];
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(S.gemModel)}:generateContent`;
+  const j = await fetchJSON(url, {
+    method:'POST',
+    headers: { 'Content-Type':'application/json', 'x-goog-api-key': S.gemKey },
+    body: JSON.stringify(body)
+  }, 'Gemini');
+  if (j.promptFeedback?.blockReason) throw new Error('Gemini 입력 차단: ' + j.promptFeedback.blockReason);
+  const cand = j.candidates?.[0];
+  const text = (cand?.content?.parts || []).filter(p => p.text && !p.thought).map(p => p.text).join('\n').trim();
+  if (!text) throw new Error('Gemini 빈 응답 (finishReason: ' + (cand?.finishReason || '알 수 없음') + ')');
+  const u = j.usageMetadata || {};
+  const outTok = (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0);
+  const sources = (cand?.groundingMetadata?.groundingChunks || []).map(c => c.web).filter(Boolean).map(w => `- [${w.title || w.uri}](${w.uri})`);
+  return {
+    text: sources.length ? `${text}\n\n#### 검색 출처\n${sources.join('\n')}` : text,
+    inTok: u.promptTokenCount || 0, outTok,
+    truncated: cand?.finishReason === 'MAX_TOKENS'
+  };
+}
+
+async function callClaude(system, prompt, imgs){
+  if (!S.claKey) throw new Error('Claude API 키가 없습니다. 설정에서 입력하십시오.');
+  const content = [
+    ...imgs.map(m => ({ type:'image', source: { type:'base64', media_type: m.mime, data: m.data } })),
+    { type:'text', text: prompt }
+  ];
+  const j = await fetchJSON('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers: {
+      'Content-Type':'application/json',
+      'x-api-key': S.claKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body: JSON.stringify({ model: S.claModel, max_tokens: Number(S.maxTok) || 8192, system, messages: [{ role:'user', content }] })
+  }, 'Claude');
+  const text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+  if (!text) throw new Error('Claude 빈 응답 (stop_reason: ' + (j.stop_reason || '알 수 없음') + ')');
+  return { text, inTok: j.usage?.input_tokens || 0, outTok: j.usage?.output_tokens || 0, truncated: j.stop_reason === 'max_tokens' };
+}
+
+function cost(model, inTok, outTok){
+  const g = model === 'gemini';
+  const pin = Number(g ? S.pGemIn : S.pClaIn) || 0, pout = Number(g ? S.pGemOut : S.pClaOut) || 0;
+  return (inTok * pin + outTok * pout) / 1e6;
+}
+async function callModel(who, system, prompt, imgs, useSearch){
+  const r = who === 'gemini' ? await callGemini(system, prompt, imgs, useSearch) : await callClaude(system, prompt, imgs);
+  r.cost = cost(who, r.inTok, r.outTok);
+  r.model = who === 'gemini' ? S.gemModel : S.claModel;
+  return r;
+}
+
+function parseVerdict(text){
+  const head = String(text).slice(0, 400).replace(/\*/g, '');
+  const m = head.match(/판정\s*[:：]\s*(조건부\s*통과|통과|반려)/);
+  if (!m) return '불명';
+  return m[1].replace(/\s+/g, ' ');
+}
+function monthCost(){
+  const ym = new Date().toISOString().slice(0, 7);
+  return records.filter(r => !r.deleted && (r.createdAt || '').startsWith(ym)).reduce((a, r) => a + (r.totalCost || 0), 0);
+}
+
+/* ---------- 파이프라인 ---------- */
+async function run(){
+  if (running) return;
+  const problem = $('fProblem').value.trim();
+  if (!problem) { toast('문제를 입력하십시오.'); return; }
+  const type = typeOf($('fType').value);
+  const solver = $('fSwap').checked ? (type.solver === 'gemini' ? 'claude' : 'gemini') : type.solver;
+  const reviewer = solver === 'gemini' ? 'claude' : 'gemini';
+  if (!S.gemKey || !S.claKey) { toast('설정에서 두 API 키를 모두 입력하십시오.'); switchView('settings'); return; }
+  const spent = monthCost();
+  if (S.budget > 0 && spent >= S.budget && !confirm(`이번 달 추정 비용 ${money(spent)}가 예산 $${S.budget}를 넘었습니다. 계속 실행할까요?`)) return;
+
+  cur = {
+    id: uid(), createdAt: nowISO(), updatedAt: nowISO(), ver: APP_VER,
+    title: $('fTitle').value.trim() || problem.slice(0, 40),
+    typeId: type.id, solver, reviewer, search: $('fSearch').checked,
+    problem, conditions: $('fCond').value.trim(), data: $('fData').value.trim(),
+    imageCount: images.length, rounds: [], status: 'running', finalVerdict: '',
+    totalCost: 0, falsePositive: false, rework: false, human: ''
+  };
+  records.unshift(cur); saveRecord(cur);
+  running = true; abortCtl = new AbortController(); setBusy(true);
+  if (window.innerWidth < 1024) setTimeout(() => $('statusBox').scrollIntoView({ behavior:'smooth', block:'start' }), 50);
+  const maxRounds = Math.max(1, Math.min(4, Number(S.rounds) || 2));
+  const imgs = images.map(({ mime, data }) => ({ mime, data }));
+
+  try {
+    for (let n = 1; n <= maxRounds; n++) {
+      const prev = cur.rounds[cur.rounds.length - 1];
+      const round = { n, solver, reviewer, solution:'', review:'', verdict:'', startedAt: nowISO(), notes: [] };
+      cur.rounds.push(round); renderWork();
+
+      setStatus(`라운드 ${n}: ${name(solver)} 해결안 작성 중…`, '');
+      const sol = await callModel(solver, SOLVER_SYS, buildSolvePrompt(cur, prev), imgs, solver === 'gemini' && cur.search);
+      round.solution = sol.text; round.solverModel = sol.model; round.solverCost = sol.cost;
+      if (sol.truncated) round.notes.push('해결안이 최대 토큰에서 잘렸습니다. 설정에서 응답 최대 토큰을 늘리십시오.');
+      cur.totalCost += sol.cost; touch(); renderWork();
+
+      setStatus(`라운드 ${n}: ${name(reviewer)} 검증 중…`, '');
+      const rev = await callModel(reviewer, REVIEWER_SYS, buildReviewPrompt(cur, sol.text, type), imgs, reviewer === 'gemini' && cur.search);
+      round.review = rev.text; round.reviewerModel = rev.model; round.reviewerCost = rev.cost;
+      if (rev.truncated) round.notes.push('검증 결과가 최대 토큰에서 잘렸습니다.');
+      round.verdict = parseVerdict(rev.text);
+      cur.totalCost += rev.cost; touch(); renderWork();
+
+      if (round.verdict === '통과' || round.verdict === '조건부 통과') { cur.status = 'done'; cur.finalVerdict = round.verdict; break; }
+      if (round.verdict === '불명') { cur.status = 'human'; cur.finalVerdict = '판정 불명'; break; }
+      if (n === maxRounds) { cur.status = 'human'; cur.finalVerdict = `${maxRounds}회 반려`; }
+    }
+  } catch (e) {
+    cur.status = abortCtl.signal.aborted ? 'stopped' : 'error';
+    cur.error = e.message;
+  } finally {
+    running = false; setBusy(false); touch(); renderWork();
+  }
+}
+function name(who){ return who === 'gemini' ? 'Gemini' : 'Claude'; }
+function touch(){ if (!cur) return; cur.updatedAt = nowISO(); saveRecord(cur); }
+
+/* ---------- 렌더 ---------- */
+function setStatus(msg, kind){ const b = $('statusBox'); b.style.display = 'block'; b.className = 'status ' + (kind || ''); b.innerHTML = (kind ? '' : '<span class="spin"></span> ') + esc(msg); }
+function setBusy(on){ $('btnRun').disabled = on; $('btnStop').disabled = !on; $('btnNew').disabled = on; }
+
+function renderWork(){
+  const box = $('rounds');
+  if (!cur) { box.innerHTML = '<div class="panel muted">왼쪽에 문제를 입력하고 실행하십시오. 해결안과 검증 결과가 라운드별로 표시됩니다.</div>'; $('statusBox').style.display = 'none'; $('postBox').style.display = 'none'; $('recLabel').textContent = '새 작업'; return; }
+  $('recLabel').textContent = cur.title;
+  box.innerHTML = cur.rounds.map(r => {
+    const vk = r.verdict === '통과' ? 'ok' : r.verdict === '조건부 통과' ? 'warn' : r.verdict ? 'bad' : '';
+    const cell = (who, text, cst, label) => `
+      <div class="out">
+        <div class="who ${who === 'gemini' ? 'g' : 'c'}"><span>${label} · ${esc(who === r.solver ? (r.solverModel || '') : (r.reviewerModel || '')) || name(who)}${cst ? ' · ' + money(cst) : ''}</span>
+        ${text ? `<button class="btn sm" data-copy="${r.n}-${label}">복사</button>` : ''}</div>
+        <div class="md">${text ? md(text) : '<span class="spin"></span>'}</div>
+      </div>`;
+    return `<div class="round">
+      <h3>라운드 ${r.n} ${r.verdict ? `<span class="pill ${vk}">${esc(r.verdict)}</span>` : ''}</h3>
+      ${r.notes?.length ? `<div class="err" style="padding:6px 14px">${r.notes.map(esc).join('\n')}</div>` : ''}
+      <div class="pair">
+        ${cell(r.solver, r.solution, r.solverCost, '해결 ' + name(r.solver))}
+        ${r.solution ? cell(r.reviewer, r.review, r.reviewerCost, '검증 ' + name(r.reviewer)) : ''}
+      </div></div>`;
+  }).join('');
+
+  if (!running) {
+    const map = {
+      done: [`최종 판정: ${cur.finalVerdict} — 현장 반영 가능 (조건부는 지적 사항 처리 후)`, 'ok'],
+      human: [`${cur.finalVerdict} — 사람이 현장 데이터로 최종 판단하십시오`, 'warn'],
+      stopped: ['중지됨', 'warn'],
+      error: [`오류: ${cur.error || ''}`, 'bad'],
+      running: ['진행 중 (앱이 닫혀 중단됨)', 'warn']
+    };
+    const [msg, k] = map[cur.status] || ['', ''];
+    setStatus(`${msg}  ·  누적 비용 ${money(cur.totalCost || 0)}`, k);
+  }
+  $('postBox').style.display = cur.rounds.some(r => r.review) ? 'block' : 'none';
+  $('pFalsePos').checked = !!cur.falsePositive; $('pRework').checked = !!cur.rework; $('pHuman').value = cur.human || '';
+  box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => {
+    const [n, label] = b.dataset.copy.split('-');
+    const r = cur.rounds.find(x => String(x.n) === n);
+    copyText(label.startsWith('해결') ? r.solution : r.review);
+  }));
+  updateCostHint();
+}
+
+function copyText(t){
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(t).then(() => toast('복사했습니다.'), () => fallbackCopy(t));
+  else fallbackCopy(t);
+}
+function fallbackCopy(t){ const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); toast('복사했습니다.'); } catch { toast('복사 실패'); } a.remove(); }
+
+function updateModeHint(){
+  const type = typeOf($('fType').value);
+  const solver = $('fSwap').checked ? (type.solver === 'gemini' ? 'claude' : 'gemini') : type.solver;
+  $('modeHint').innerHTML = `<span class="mode">${name(solver)} 해결 → ${name(solver === 'gemini' ? 'claude' : 'gemini')} 검증</span>`;
+}
+function updateCostHint(){ $('costHint').textContent = `이번 달 추정 비용 ${money(monthCost())}${S.budget > 0 ? ` / 예산 $${S.budget}` : ''}`; }
+
+function loadIntoForm(rec){
+  cur = rec; images = []; renderThumbs();
+  $('fTitle').value = rec.title || ''; $('fType').value = rec.typeId;
+  $('fSwap').checked = rec.solver !== typeOf(rec.typeId).solver;
+  $('fSearch').checked = !!rec.search;
+  $('fProblem').value = rec.problem || ''; $('fCond').value = rec.conditions || ''; $('fData').value = rec.data || '';
+  updateModeHint(); renderWork(); switchView('work');
+}
+function newWork(){
+  if (running) return;
+  cur = null; images = []; renderThumbs();
+  ['fTitle','fProblem','fCond','fData'].forEach(id => $(id).value = '');
+  $('fSwap').checked = false; $('fSearch').checked = typeOf($('fType').value).search;
+  updateModeHint(); renderWork();
+}
+
+/* ---------- 이미지 ---------- */
+async function addImages(files){
+  for (const f of files) {
+    if (images.length >= 5) { toast('사진은 최대 5장입니다.'); break; }
+    if (!f.type.startsWith('image/')) continue;
+    try { images.push(await shrink(f)); } catch (e) { toast('사진 처리 실패: ' + e.message); }
+  }
+  renderThumbs();
+}
+function shrink(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const max = 1568, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const dataUrl = c.toDataURL('image/jpeg', 0.85);
+      URL.revokeObjectURL(url);
+      resolve({ mime:'image/jpeg', data: dataUrl.split(',')[1], url: dataUrl });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('이미지를 읽을 수 없습니다 (HEIC는 JPG로 변환 필요할 수 있음)')); };
+    img.src = url;
+  });
+}
+function renderThumbs(){
+  $('thumbs').innerHTML = images.map((m, i) => `<div><img src="${m.url}" alt="첨부 ${i + 1}"><button data-rm="${i}" aria-label="삭제">×</button></div>`).join('');
+  $('thumbs').querySelectorAll('[data-rm]').forEach(b => b.addEventListener('click', () => { images.splice(Number(b.dataset.rm), 1); renderThumbs(); }));
+}
+
+/* ---------- 기록 / KPI ---------- */
+function visible(){ return records.filter(r => !r.deleted); }
+function renderHistory(){
+  const q = $('hSearch').value.trim().toLowerCase(), f = $('hFilter').value;
+  const list = visible().filter(r => (!f || r.typeId === f) && (!q || (r.title + ' ' + r.problem).toLowerCase().includes(q)));
+  const done = visible().filter(r => r.rounds?.some(x => x.verdict));
+  const caught = done.filter(r => r.rounds[0]?.verdict && r.rounds[0].verdict !== '통과').length;
+  const avgLoops = done.length ? (done.reduce((a, r) => a + r.rounds.length, 0) / done.length).toFixed(2) : '-';
+  const fp = done.filter(r => r.falsePositive).length, rw = done.filter(r => r.rework).length;
+  const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '-';
+  $('kpis').innerHTML = [
+    ['완료 건수', done.length],
+    ['1차 결함 탐지율', pct(caught, done.length)],
+    ['오탐 보고율', pct(fp, done.length)],
+    ['평균 라운드', avgLoops],
+    ['현장 재작업', rw + '건'],
+    ['이번 달 비용', money(monthCost())]
+  ].map(([k, v]) => `<div class="kpi"><span class="muted">${k}</span><b>${v}</b></div>`).join('');
+  $('hList').innerHTML = list.length ? list.map(r => {
+    const k = r.status === 'done' ? (r.finalVerdict === '통과' ? 'ok' : 'warn') : r.status === 'human' ? 'warn' : r.status === 'error' ? 'bad' : '';
+    const label = { done: r.finalVerdict, human: '사람 판단', error: '오류', stopped: '중지', running: '중단됨' }[r.status] || r.status;
+    return `<div class="item" data-id="${r.id}">
+      <span class="pill ${k}">${esc(label)}</span>
+      <span class="t"><strong>${esc(r.title)}</strong> <span class="muted">· ${esc(typeOf(r.typeId).name)} · ${name(r.solver)}→${name(r.reviewer)}</span></span>
+      <span class="muted">${fmtDate(r.createdAt)}</span>
+      <button class="btn sm danger" data-del="${r.id}" aria-label="삭제">삭제</button></div>`;
+  }).join('') : '<div class="muted" style="padding:12px">기록이 없습니다.</div>';
+  $('hList').querySelectorAll('.item').forEach(el => el.addEventListener('click', (e) => {
+    if (e.target.dataset.del) return;
+    const r = records.find(x => x.id === el.dataset.id); if (r) loadIntoForm(r);
+  }));
+  $('hList').querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = records.find(x => x.id === b.dataset.del);
+    if (!r || !confirm(`"${r.title}" 기록을 삭제할까요? (동기화된 기기에서도 삭제)`)) return;
+    r.deleted = true; r.updatedAt = nowISO(); r.rounds = []; r.problem = ''; r.conditions = ''; r.data = '';
+    saveRecord(r); if (cur?.id === r.id) newWork(); renderHistory();
+  }));
+}
+function csvCell(v){ const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+function exportCsv(){
+  const head = ['ID','생성일시','유형','해결','검증','제목','라운드수','1차판정','최종판정','상태','오탐','재작업','비용USD','사람판단'];
+  const rows = visible().map(r => [r.id, r.createdAt, typeOf(r.typeId).name, name(r.solver), name(r.reviewer), r.title,
+    r.rounds?.length || 0, r.rounds?.[0]?.verdict || '', r.finalVerdict, r.status, r.falsePositive ? 'Y' : 'N', r.rework ? 'Y' : 'N',
+    (r.totalCost || 0).toFixed(4), r.human]);
+  const csv = '﻿' + [head, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
+  download(`dual-llm-kpi-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv;charset=utf-8');
+}
+function download(nameStr, content, mime){
+  const blob = new Blob([content], { type: mime }); const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = nameStr; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+/* ---------- 저장 + 동기화 ---------- */
+function saveRecord(rec){
+  const i = records.findIndex(r => r.id === rec.id);
+  if (i < 0) records.unshift(rec); else records[i] = rec;
+  persistRecords(); pushRemote(rec);
+}
+
+let fb = null, fbUser = null, fbUnsub = null;
+function setSync(msg){ $('fbStatus').textContent = msg; $('syncBadge').textContent = fbUser ? '동기화 중' : '로컬 저장'; }
+async function initFirebase(){
+  if (!S.fbCfg.trim()) { setSync('미설정 (기록은 이 기기에만 저장)'); return; }
+  const cfg = safeJSON(S.fbCfg, null);
+  if (!cfg?.apiKey || !cfg?.databaseURL) { setSync('firebaseConfig에 apiKey와 databaseURL이 필요합니다.'); return; }
+  try {
+    const [appM, authM, dbM] = await Promise.all([
+      import(FB_SDK + 'firebase-app.js'), import(FB_SDK + 'firebase-auth.js'), import(FB_SDK + 'firebase-database.js')
+    ]);
+    const app = appM.initializeApp(cfg);
+    const auth = authM.getAuth(app);
+    await authM.setPersistence(auth, authM.browserLocalPersistence);
+    fb = { appM, authM, dbM, app, auth, db: dbM.getDatabase(app) };
+    authM.onAuthStateChanged(auth, (user) => {
+      fbUser = user;
+      if (fbUnsub) { fbUnsub(); fbUnsub = null; }
+      if (!user) { setSync('Firebase 연결됨 · 로그아웃 상태'); return; }
+      setSync(`로그인: ${user.email}`);
+      const r = dbM.ref(fb.db, `users/${user.uid}/records`);
+      let first = true;
+      fbUnsub = dbM.onValue(r, (snap) => { mergeRemote(snap.val() || {}, first); first = false; },
+        (err) => setSync('동기화 오류: ' + err.message + ' (보안 규칙 확인)'));
+    });
+  } catch (e) { setSync('Firebase 초기화 실패: ' + e.message); }
+}
+function mergeRemote(remote, uploadLocalOnly){
+  let changed = false;
+  for (const [id, rr] of Object.entries(remote)) {
+    const i = records.findIndex(r => r.id === id);
+    if (i < 0) { records.push(rr); changed = true; }
+    else if ((rr.updatedAt || '') > (records[i].updatedAt || '')) {
+      if (running && cur?.id === id) continue;
+      records[i] = rr; if (cur?.id === id) cur = rr; changed = true;
+    }
+  }
+  if (uploadLocalOnly) records.filter(r => !remote[r.id] || (r.updatedAt || '') > (remote[r.id].updatedAt || '')).forEach(pushRemote);
+  if (changed) {
+    records.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    persistRecords(); renderHistory(); if (!running) renderWork();
+  }
+}
+function pushRemote(rec){
+  if (!fb || !fbUser) return;
+  const clean = JSON.parse(JSON.stringify(rec));
+  fb.dbM.set(fb.dbM.ref(fb.db, `users/${fbUser.uid}/records/${rec.id}`), clean).catch(e => setSync('업로드 실패: ' + e.message));
+}
+async function fbAuth(kind){
+  if (!fb) { toast('firebaseConfig 저장 후 새로고침하십시오.'); return; }
+  const email = $('sFbEmail').value.trim(), pw = $('sFbPw').value;
+  try {
+    if (kind === 'out') { await fb.authM.signOut(fb.auth); return; }
+    if (!email || pw.length < 6) { toast('이메일과 6자 이상 비밀번호를 입력하십시오.'); return; }
+    if (kind === 'up') await fb.authM.createUserWithEmailAndPassword(fb.auth, email, pw);
+    else await fb.authM.signInWithEmailAndPassword(fb.auth, email, pw);
+    S.fbEmail = email; saveSettingsLS(); $('sFbPw').value = ''; toast('로그인했습니다.');
+  } catch (e) { toast('인증 실패: ' + e.code, 4000); }
+}
+
+/* ---------- 설정 ---------- */
+const SET_MAP = { sGemKey:'gemKey', sClaKey:'claKey', sGemModel:'gemModel', sClaModel:'claModel', sRounds:'rounds', sMaxTok:'maxTok',
+  sTimeout:'timeout', pGemIn:'pGemIn', pGemOut:'pGemOut', pClaIn:'pClaIn', pClaOut:'pClaOut', sBudget:'budget', sFbCfg:'fbCfg', sFbEmail:'fbEmail' };
+const NUMERIC = ['rounds','maxTok','timeout','pGemIn','pGemOut','pClaIn','pClaOut','budget'];
+function fillSettings(){ for (const [id, k] of Object.entries(SET_MAP)) $(id).value = S[k] ?? ''; }
+function saveSettings(){
+  const oldCfg = S.fbCfg;
+  for (const [id, k] of Object.entries(SET_MAP)) {
+    let v = $(id).value.trim();
+    if (NUMERIC.includes(k)) { const n = Number(v); v = Number.isFinite(n) && v !== '' ? n : DEFAULTS[k]; }
+    S[k] = v;
+  }
+  if (S.fbCfg && !safeJSON(S.fbCfg, null)) { toast('firebaseConfig JSON 형식 오류'); return; }
+  saveSettingsLS(); fillSettings(); updateCostHint(); toast('저장했습니다.');
+  if (S.fbCfg !== oldCfg) toast('Firebase 설정 변경: 새로고침하면 적용됩니다.', 4000);
+}
+async function testKeys(){
+  saveSettings();
+  $('keyTest').textContent = '테스트 중…';
+  const out = [];
+  abortCtl = new AbortController();
+  try { const r = await callGemini('한 단어로 답하십시오.', 'OK라고만 답하십시오.', [], false); out.push(`Gemini ✓ (${S.gemModel}): ${r.text.slice(0, 20)}`); }
+  catch (e) { out.push('Gemini ✗ ' + e.message); }
+  try { const r = await callClaude('한 단어로 답하십시오.', 'OK라고만 답하십시오.', []); out.push(`Claude ✓ (${S.claModel}): ${r.text.slice(0, 20)}`); }
+  catch (e) { out.push('Claude ✗ ' + e.message); }
+  abortCtl = null;
+  $('keyTest').textContent = out.join('\n'); $('keyTest').style.whiteSpace = 'pre-wrap';
+}
+function importJson(file){
+  const fr = new FileReader();
+  fr.onload = () => {
+    const arr = safeJSON(fr.result, null);
+    if (!Array.isArray(arr)) { toast('올바른 백업 파일이 아닙니다.'); return; }
+    let n = 0;
+    for (const r of arr) {
+      if (!r?.id) continue;
+      const i = records.findIndex(x => x.id === r.id);
+      if (i < 0 || (r.updatedAt || '') > (records[i].updatedAt || '')) { if (i < 0) records.push(r); else records[i] = r; pushRemote(r); n++; }
+    }
+    records.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    persistRecords(); renderHistory(); toast(`${n}건 복원했습니다.`);
+  };
+  fr.readAsText(file);
+}
+
+/* ---------- 뷰 전환 ---------- */
+function switchView(v){
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  document.querySelectorAll('.view').forEach(s => s.classList.toggle('on', s.id === 'view-' + v));
+  if (v === 'history') renderHistory();
+  if (v === 'settings') fillSettings();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- 초기화 ---------- */
+function init(){
+  $('fType').innerHTML = TASK_TYPES.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+  $('hFilter').innerHTML += TASK_TYPES.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+  $('fType').addEventListener('change', () => { $('fSwap').checked = false; $('fSearch').checked = typeOf($('fType').value).search; updateModeHint(); });
+  $('fSwap').addEventListener('change', updateModeHint);
+  $('fImg').addEventListener('change', (e) => { addImages([...e.target.files]); e.target.value = ''; });
+  document.addEventListener('paste', (e) => {
+    if (!$('view-work').classList.contains('on')) return;
+    const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (files.length) { e.preventDefault(); addImages(files); }
+  });
+  $('btnRun').addEventListener('click', run);
+  $('btnStop').addEventListener('click', () => { abortCtl?.abort(); toast('중지 요청'); });
+  $('btnNew').addEventListener('click', newWork);
+  $('btnSavePost').addEventListener('click', () => {
+    if (!cur) return;
+    cur.falsePositive = $('pFalsePos').checked; cur.rework = $('pRework').checked; cur.human = $('pHuman').value.trim();
+    touch(); toast('평가를 저장했습니다.');
+  });
+  $('btnCopyAll').addEventListener('click', () => {
+    if (!cur) return;
+    copyText(`# ${cur.title}\n\n[문제]\n${cur.problem}\n\n` + cur.rounds.map(r =>
+      `## 라운드 ${r.n} — ${r.verdict}\n### 해결 (${name(r.solver)})\n${r.solution}\n\n### 검증 (${name(r.reviewer)})\n${r.review}`).join('\n\n') +
+      (cur.human ? `\n\n## 사람 판단\n${cur.human}` : ''));
+  });
+  $('hSearch').addEventListener('input', renderHistory);
+  $('hFilter').addEventListener('change', renderHistory);
+  $('btnCsv').addEventListener('click', exportCsv);
+  $('btnSaveSettings').addEventListener('click', saveSettings);
+  $('btnTestKeys').addEventListener('click', testKeys);
+  $('btnExportJson').addEventListener('click', () => download(`dual-llm-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(records, null, 2), 'application/json'));
+  $('fImport').addEventListener('change', (e) => { if (e.target.files[0]) importJson(e.target.files[0]); e.target.value = ''; });
+  $('btnFbLogin').addEventListener('click', () => fbAuth('in'));
+  $('btnFbSignup').addEventListener('click', () => fbAuth('up'));
+  $('btnFbLogout').addEventListener('click', () => fbAuth('out'));
+  document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
+  window.addEventListener('beforeunload', (e) => { if (running) { e.preventDefault(); e.returnValue = ''; } });
+
+  // 앱 종료로 중단된 작업 표시 정리
+  records.forEach(r => { if (r.status === 'running') { r.status = 'stopped'; r.error = '앱 종료로 중단'; } });
+  persistRecords();
+
+  $('fSearch').checked = typeOf($('fType').value).search;
+  updateModeHint(); renderWork(); fillSettings(); initFirebase();
+  if (!S.gemKey || !S.claKey) { switchView('settings'); toast('먼저 두 API 키를 입력하십시오.', 3500); }
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+init();
+</script>
+</body>
+</html>

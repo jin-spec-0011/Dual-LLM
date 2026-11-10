@@ -2,7 +2,7 @@
  * 앱 셸만 캐시합니다. API 호출(googleapis / anthropic / firebase)은 캐시하지 않습니다.
  * index.html 수정 후 배포 시 CACHE 버전을 올리세요.
  */
-const CACHE = 'dual-llm-v1.0.0';
+const CACHE = 'dual-llm-v1.1.0';
 const ASSETS = [
   './',
   './index.html',

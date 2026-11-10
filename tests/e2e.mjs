@@ -115,6 +115,29 @@ try {
     ok(await page.locator('#hList .item').count() === 0, '삭제 반영');
     await ctx.close();
   }
+  console.log('H. 오류 후 "이어서 재시도" (실패 지점부터 재개, 처음부터 아님)');
+  {
+    const { ctx, page, calls } = await newPage(browser, { gem: (n) => n === 1 ? httpErr(400, 'bad request') : gem('해결안'), cla: () => cla('판정: 통과') });
+    await runJob(page);
+    ok((await statusText(page)).includes('오류'), '1차 실행은 오류');
+    ok(await page.locator('#btnResume').isVisible(), '이어서 재시도 버튼 표시');
+    await page.click('#btnResume');
+    await page.waitForFunction(() => document.getElementById('statusBox').innerText.includes('최종 판정'), null, { timeout: 30000 });
+    ok((await statusText(page)).includes('최종 판정: 통과'), '재시도 후 통과');
+    ok(await page.locator('.round').count() === 1, '라운드가 중복 생성되지 않음');
+    ok(!(await page.locator('#btnResume').isVisible()), '완료 후 버튼 숨김');
+    ok(calls.gem === 2 && calls.cla === 1, '호출 gem 2 (실패 1 + 재개 1) / cla 1');
+    await ctx.close();
+  }
+  console.log('I. 검증 단계 오류 시 해결안은 재사용 (해결 재호출 없음)');
+  {
+    const { ctx, page, calls } = await newPage(browser, { gem: () => gem('해결안'), cla: (n) => n === 1 ? httpErr(400, 'bad') : cla('판정: 통과') });
+    await runJob(page);
+    await page.click('#btnResume');
+    await page.waitForFunction(() => document.getElementById('statusBox').innerText.includes('최종 판정'), null, { timeout: 30000 });
+    ok(calls.gem === 1 && calls.cla === 2, '해결 1회만 호출, 검증만 재호출');
+    await ctx.close();
+  }
   console.log('G. 키 없음 → 설정 화면 이동');
   {
     const ctx = await browser.newContext();

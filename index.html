@@ -145,6 +145,7 @@ details summary{cursor:pointer;font-weight:600}
 
     <div>
       <div id="statusBox" class="status" style="display:none"></div>
+      <div id="resumeBox" style="display:none;margin-bottom:12px"><button class="btn primary" id="btnResume">오류 지점부터 이어서 재시도</button></div>
       <div id="rounds"></div>
       <div class="panel" id="postBox" style="display:none">
         <strong>사후 평가 (KPI 기록)</strong>
@@ -247,11 +248,12 @@ details summary{cursor:pointer;font-weight:600}
  * Dual LLM 교차검증 PWA  v1.0.0
  * Gemini 해결 → Claude 검증 (역할 전환 가능), 반려 시 재수정 루프
  * ========================================================= */
-const APP_VER = '1.0.0';
+const APP_VER = '1.1.0';
 const LS_SETTINGS = 'dllm.settings.v1';
 const LS_RECORDS = 'dllm.records.v1';
 const FB_SDK = 'https://www.gstatic.com/firebasejs/10.12.2/';
 const RETRY_STATUS = [408, 429, 500, 502, 503, 504, 529];
+const MAX_TRIES = 5;   // 대기 2·4·8·16초 (최대 약 30초)
 
 /* ---------- 업무 유형 (계획서 역할 매트릭스) ---------- */
 const TASK_TYPES = [
@@ -391,7 +393,7 @@ function md(src){
 /* ---------- 네트워크 ---------- */
 async function fetchJSON(url, opts, label){
   let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
     if (abortCtl?.signal.aborted) throw new Error('사용자가 중지했습니다.');
     const timeoutCtl = new AbortController();
     const timer = setTimeout(() => timeoutCtl.abort(), S.timeout * 1000);
@@ -414,7 +416,7 @@ async function fetchJSON(url, opts, label){
       clearTimeout(timer);
       abortCtl?.signal.removeEventListener('abort', onAbort);
     }
-    await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+    if (attempt < MAX_TRIES - 1) await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
   }
   throw lastErr;
 }
@@ -493,45 +495,64 @@ function monthCost(){
 }
 
 /* ---------- 파이프라인 ---------- */
-async function run(){
+async function run(resume = false){
   if (running) return;
-  const problem = $('fProblem').value.trim();
-  if (!problem) { toast('문제를 입력하십시오.'); return; }
-  const type = typeOf($('fType').value);
-  const solver = $('fSwap').checked ? (type.solver === 'gemini' ? 'claude' : 'gemini') : type.solver;
-  const reviewer = solver === 'gemini' ? 'claude' : 'gemini';
-  if (!S.gemKey || !S.claKey) { toast('설정에서 두 API 키를 모두 입력하십시오.'); switchView('settings'); return; }
-  const spent = monthCost();
-  if (S.budget > 0 && spent >= S.budget && !confirm(`이번 달 추정 비용 ${money(spent)}가 예산 $${S.budget}를 넘었습니다. 계속 실행할까요?`)) return;
-
-  cur = {
-    id: uid(), createdAt: nowISO(), updatedAt: nowISO(), ver: APP_VER,
-    title: $('fTitle').value.trim() || problem.slice(0, 40),
-    typeId: type.id, solver, reviewer, search: $('fSearch').checked,
-    problem, conditions: $('fCond').value.trim(), data: $('fData').value.trim(),
-    imageCount: images.length, rounds: [], status: 'running', finalVerdict: '',
-    totalCost: 0, falsePositive: false, rework: false, human: ''
-  };
-  records.unshift(cur); saveRecord(cur);
+  let type, solver, reviewer, startN = 1, reuse = false;
+  if (!resume) {
+    const problem = $('fProblem').value.trim();
+    if (!problem) { toast('문제를 입력하십시오.'); return; }
+    type = typeOf($('fType').value);
+    solver = $('fSwap').checked ? (type.solver === 'gemini' ? 'claude' : 'gemini') : type.solver;
+    reviewer = solver === 'gemini' ? 'claude' : 'gemini';
+    if (!S.gemKey || !S.claKey) { toast('설정에서 두 API 키를 모두 입력하십시오.'); switchView('settings'); return; }
+    const spent = monthCost();
+    if (S.budget > 0 && spent >= S.budget && !confirm(`이번 달 추정 비용 ${money(spent)}가 예산 $${S.budget}를 넘었습니다. 계속 실행할까요?`)) return;
+    cur = {
+      id: uid(), createdAt: nowISO(), updatedAt: nowISO(), ver: APP_VER,
+      title: $('fTitle').value.trim() || problem.slice(0, 40),
+      typeId: type.id, solver, reviewer, search: $('fSearch').checked,
+      problem, conditions: $('fCond').value.trim(), data: $('fData').value.trim(),
+      imageCount: images.length, rounds: [], status: 'running', finalVerdict: '',
+      totalCost: 0, falsePositive: false, rework: false, human: ''
+    };
+    records.unshift(cur); saveRecord(cur);
+  } else {
+    if (!cur || !['error', 'stopped'].includes(cur.status)) return;
+    if (!S.gemKey || !S.claKey) { toast('설정에서 두 API 키를 모두 입력하십시오.'); switchView('settings'); return; }
+    type = typeOf(cur.typeId); solver = cur.solver; reviewer = cur.reviewer;
+    const last = cur.rounds[cur.rounds.length - 1];
+    if (last && !last.review) { startN = last.n; reuse = true; } else startN = cur.rounds.length + 1;
+    cur.status = 'running'; cur.error = ''; cur.finalVerdict = '';
+  }
   running = true; abortCtl = new AbortController(); setBusy(true);
   if (window.innerWidth < 1024) setTimeout(() => $('statusBox').scrollIntoView({ behavior:'smooth', block:'start' }), 50);
-  const maxRounds = Math.max(1, Math.min(4, Number(S.rounds) || 2));
+  const maxRounds = Math.max(startN, Math.max(1, Math.min(4, Number(S.rounds) || 2)));
   const imgs = images.map(({ mime, data }) => ({ mime, data }));
 
   try {
-    for (let n = 1; n <= maxRounds; n++) {
-      const prev = cur.rounds[cur.rounds.length - 1];
-      const round = { n, solver, reviewer, solution:'', review:'', verdict:'', startedAt: nowISO(), notes: [] };
-      cur.rounds.push(round); renderWork();
+    for (let n = startN; n <= maxRounds; n++) {
+      let round, prev;
+      if (reuse && n === startN) {
+        round = cur.rounds[cur.rounds.length - 1];
+        prev = cur.rounds[cur.rounds.length - 2];
+        reuse = false;
+      } else {
+        prev = cur.rounds[cur.rounds.length - 1];
+        round = { n, solver, reviewer, solution:'', review:'', verdict:'', startedAt: nowISO(), notes: [] };
+        cur.rounds.push(round);
+      }
+      renderWork();
 
-      setStatus(`라운드 ${n}: ${name(solver)} 해결안 작성 중…`, '');
-      const sol = await callModel(solver, SOLVER_SYS, buildSolvePrompt(cur, prev), imgs, solver === 'gemini' && cur.search);
-      round.solution = sol.text; round.solverModel = sol.model; round.solverCost = sol.cost;
-      if (sol.truncated) round.notes.push('해결안이 최대 토큰에서 잘렸습니다. 설정에서 응답 최대 토큰을 늘리십시오.');
-      cur.totalCost += sol.cost; touch(); renderWork();
+      if (!round.solution) {
+        setStatus(`라운드 ${n}: ${name(solver)} 해결안 작성 중…`, '');
+        const sol = await callModel(solver, SOLVER_SYS, buildSolvePrompt(cur, prev), imgs, solver === 'gemini' && cur.search);
+        round.solution = sol.text; round.solverModel = sol.model; round.solverCost = sol.cost;
+        if (sol.truncated) round.notes.push('해결안이 최대 토큰에서 잘렸습니다. 설정에서 응답 최대 토큰을 늘리십시오.');
+        cur.totalCost += sol.cost; touch(); renderWork();
+      }
 
       setStatus(`라운드 ${n}: ${name(reviewer)} 검증 중…`, '');
-      const rev = await callModel(reviewer, REVIEWER_SYS, buildReviewPrompt(cur, sol.text, type), imgs, reviewer === 'gemini' && cur.search);
+      const rev = await callModel(reviewer, REVIEWER_SYS, buildReviewPrompt(cur, round.solution, type), imgs, reviewer === 'gemini' && cur.search);
       round.review = rev.text; round.reviewerModel = rev.model; round.reviewerCost = rev.cost;
       if (rev.truncated) round.notes.push('검증 결과가 최대 토큰에서 잘렸습니다.');
       round.verdict = parseVerdict(rev.text);
@@ -553,11 +574,11 @@ function touch(){ if (!cur) return; cur.updatedAt = nowISO(); saveRecord(cur); }
 
 /* ---------- 렌더 ---------- */
 function setStatus(msg, kind){ const b = $('statusBox'); b.style.display = 'block'; b.className = 'status ' + (kind || ''); b.innerHTML = (kind ? '' : '<span class="spin"></span> ') + esc(msg); }
-function setBusy(on){ $('btnRun').disabled = on; $('btnStop').disabled = !on; $('btnNew').disabled = on; }
+function setBusy(on){ if (on) $('resumeBox').style.display = 'none'; $('btnRun').disabled = on; $('btnStop').disabled = !on; $('btnNew').disabled = on; }
 
 function renderWork(){
   const box = $('rounds');
-  if (!cur) { box.innerHTML = '<div class="panel muted">왼쪽에 문제를 입력하고 실행하십시오. 해결안과 검증 결과가 라운드별로 표시됩니다.</div>'; $('statusBox').style.display = 'none'; $('postBox').style.display = 'none'; $('recLabel').textContent = '새 작업'; return; }
+  if (!cur) { box.innerHTML = '<div class="panel muted">왼쪽에 문제를 입력하고 실행하십시오. 해결안과 검증 결과가 라운드별로 표시됩니다.</div>'; $('statusBox').style.display = 'none'; $('resumeBox').style.display = 'none'; $('postBox').style.display = 'none'; $('recLabel').textContent = '새 작업'; return; }
   $('recLabel').textContent = cur.title;
   box.innerHTML = cur.rounds.map(r => {
     const vk = r.verdict === '통과' ? 'ok' : r.verdict === '조건부 통과' ? 'warn' : r.verdict ? 'bad' : '';
@@ -586,7 +607,8 @@ function renderWork(){
     };
     const [msg, k] = map[cur.status] || ['', ''];
     setStatus(`${msg}  ·  누적 비용 ${money(cur.totalCost || 0)}`, k);
-  }
+    $('resumeBox').style.display = ['error', 'stopped'].includes(cur.status) ? 'block' : 'none';
+  } else $('resumeBox').style.display = 'none';
   $('postBox').style.display = cur.rounds.some(r => r.review) ? 'block' : 'none';
   $('pFalsePos').checked = !!cur.falsePositive; $('pRework').checked = !!cur.rework; $('pHuman').value = cur.human || '';
   box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => {
@@ -842,7 +864,8 @@ function init(){
     const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
     if (files.length) { e.preventDefault(); addImages(files); }
   });
-  $('btnRun').addEventListener('click', run);
+  $('btnRun').addEventListener('click', () => run());
+  $('btnResume').addEventListener('click', () => run(true));
   $('btnStop').addEventListener('click', () => { abortCtl?.abort(); toast('중지 요청'); });
   $('btnNew').addEventListener('click', newWork);
   $('btnSavePost').addEventListener('click', () => {
